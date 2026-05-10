@@ -248,6 +248,29 @@ input[type=number] {
   flex-wrap:wrap;
 }
 
+.class-btn {
+  background:var(--bg2);
+  color:var(--text);
+  border:2px solid var(--border);
+  border-radius:5px;
+  padding:6px 12px;
+  cursor:pointer;
+  font-family:inherit;
+  font-size:11px;
+  white-space:nowrap;
+  transition: all 0.2s;
+}
+
+.class-btn:hover {
+  border-color:var(--accent);
+}
+
+.class-btn.selected {
+  background:var(--accent);
+  color:black;
+  border-color:var(--accent);
+}
+
 .layer-config {
   display:flex;
   align-items:center;
@@ -598,13 +621,23 @@ let selectedClass=0;
 let draggedPoint=null;
 let resizeTimeout;
 
+// Always show 3 class buttons minimum
+const MAX_CLASS_BUTTONS = 3;
+
 function getClassCount(){
-  return Math.max(...DS[currentDS].Y)+1;
+  if (!DS[currentDS] || !DS[currentDS].Y || DS[currentDS].Y.length === 0) return 2;
+  return Math.max(MAX_CLASS_BUTTONS, Math.max(...DS[currentDS].Y) + 1);
 }
 
 function buildNetwork(){
-  const out=getClassCount()===2?1:getClassCount();
-  net=new DynamicNet([2, ...hiddenLayers, out]);
+  const classCount = getClassCount();
+  const out = classCount === 2 ? 1 : classCount;
+  
+  if (hiddenLayers.length === 0) {
+    hiddenLayers = [6];
+  }
+  
+  net = new DynamicNet([2, ...hiddenLayers, out]);
 }
 
 buildNetwork();
@@ -622,11 +655,15 @@ function resize(){
     const bWrap = document.getElementById('boundary-wrap');
     const nWrap = document.getElementById('network-wrap');
     
-    bCanvas.width = bWrap.clientWidth;
-    bCanvas.height = bWrap.clientHeight;
+    if (bWrap) {
+      bCanvas.width = bWrap.clientWidth;
+      bCanvas.height = bWrap.clientHeight;
+    }
     
-    nCanvas.width = nWrap.clientWidth;
-    nCanvas.height = nWrap.clientHeight;
+    if (nWrap) {
+      nCanvas.width = nWrap.clientWidth;
+      nCanvas.height = nWrap.clientHeight;
+    }
     
     lCanvas.width = lCanvas.offsetWidth;
     lCanvas.height = lCanvas.offsetHeight;
@@ -636,8 +673,14 @@ function resize(){
 }
 
 window.addEventListener('resize', resize);
-new ResizeObserver(resize).observe(document.getElementById('boundary-wrap'));
-new ResizeObserver(resize).observe(document.getElementById('network-wrap'));
+
+// Use ResizeObserver for more reliable resize detection
+if (window.ResizeObserver) {
+  const bWrap = document.getElementById('boundary-wrap');
+  const nWrap = document.getElementById('network-wrap');
+  if (bWrap) new ResizeObserver(resize).observe(bWrap);
+  if (nWrap) new ResizeObserver(resize).observe(nWrap);
+}
 
 function drawBoundary(){
   const W=bCanvas.width;
@@ -690,7 +733,7 @@ function drawBoundary(){
     const y=(1-p[1])*H;
     bCtx.beginPath();
     bCtx.arc(x,y,7,0,Math.PI*2);
-    bCtx.fillStyle=CLASS_COLORS[ds.Y[i]];
+    bCtx.fillStyle=CLASS_COLORS[ds.Y[i] % CLASS_COLORS.length];
     bCtx.fill();
     bCtx.strokeStyle='#000';
     bCtx.stroke();
@@ -861,12 +904,11 @@ function updateLayerSize(index, value) {
 
 function updateLayerInputs() {
   const container = document.querySelector('.layer-config');
-  const existingInputs = container.querySelectorAll('.layer-size-input');
+  if (!container) return;
   
-  // Remove old inputs
+  const existingInputs = container.querySelectorAll('.layer-size-input');
   existingInputs.forEach(input => input.remove());
   
-  // Add new inputs
   hiddenLayers.forEach((size, index) => {
     const input = document.createElement('input');
     input.type = 'number';
@@ -876,37 +918,43 @@ function updateLayerInputs() {
     input.max = 20;
     input.onchange = function() { updateLayerSize(index, this.value); };
     
-    // Insert before the + button
     const addBtn = container.querySelector('button');
     container.insertBefore(input, addBtn);
   });
 }
 
 function setLR(v){
-  net.lr=Math.pow(10,parseFloat(v));
+  if (net) net.lr = Math.pow(10, parseFloat(v));
 }
 
 function setSpeed(v){
-  speed=parseInt(v);
+  speed = parseInt(v);
 }
 
 function renderClassPicker(){
-  const wrap=document.getElementById('class-picker');
+  const wrap = document.getElementById('class-picker');
   if (!wrap) return;
-  wrap.innerHTML='';
+  wrap.innerHTML = '';
 
-  const count=getClassCount();
-  for(let i=0;i<count;i++){
-    const btn=document.createElement('button');
-    btn.textContent='Class '+i;
-    btn.style.borderColor=CLASS_COLORS[i];
-    btn.onclick=()=>{
-      selectedClass=i;
-      renderClassPicker();
-    };
-    if(selectedClass===i){
-      btn.style.background=CLASS_COLORS[i]+'33';
+  // Always show at least 3 class buttons
+  for (let i = 0; i < MAX_CLASS_BUTTONS; i++) {
+    const btn = document.createElement('button');
+    btn.className = 'class-btn';
+    btn.textContent = 'Class ' + i;
+    btn.style.borderColor = CLASS_COLORS[i % CLASS_COLORS.length];
+    btn.style.color = CLASS_COLORS[i % CLASS_COLORS.length];
+    
+    btn.onclick = (function(classIndex) {
+      return function() {
+        selectedClass = classIndex;
+        renderClassPicker();
+      };
+    })(i);
+    
+    if (selectedClass === i) {
+      btn.classList.add('selected');
     }
+    
     wrap.appendChild(btn);
   }
 }
