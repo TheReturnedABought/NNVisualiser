@@ -621,35 +621,33 @@ let selectedClass=0;
 let draggedPoint=null;
 let resizeTimeout;
 
-// Always show 3 class buttons minimum
-const MAX_CLASS_BUTTONS = 3;
-
-function getClassCount(){
-  if (!DS[currentDS] || !DS[currentDS].Y || DS[currentDS].Y.length === 0) return 2;
-  return Math.max(MAX_CLASS_BUTTONS, Math.max(...DS[currentDS].Y) + 1);
+/**
+ * Returns the number of classes for the current dataset,
+ * but at least 2 (binary) or expands if user has added points with higher labels.
+ */
+function getDatasetClassCount() {
+  const ds = DS[currentDS];
+  if (!ds || !ds.Y || ds.Y.length === 0) return 2;
+  return Math.max(...ds.Y) + 1;
 }
 
-function buildNetwork(){
-  const classCount = getClassCount();
-  const out = classCount === 2 ? 1 : classCount;
-  
-  if (hiddenLayers.length === 0) {
-    hiddenLayers = [6];
-  }
-  
-  net = new DynamicNet([2, ...hiddenLayers, out]);
+function buildNetwork() {
+  const numClasses = getDatasetClassCount();
+  // output layer size: for 2 classes use 1 (sigmoid), else use class count
+  const outSize = numClasses === 2 ? 1 : numClasses;
+  net = new DynamicNet([2, ...hiddenLayers, outSize]);
 }
 
 buildNetwork();
 
-const bCanvas=document.getElementById('boundary-canvas');
-const bCtx=bCanvas.getContext('2d');
-const nCanvas=document.getElementById('network-canvas');
-const nCtx=nCanvas.getContext('2d');
-const lCanvas=document.getElementById('loss-canvas');
-const lCtx=lCanvas.getContext('2d');
+const bCanvas = document.getElementById('boundary-canvas');
+const bCtx = bCanvas.getContext('2d');
+const nCanvas = document.getElementById('network-canvas');
+const nCtx = nCanvas.getContext('2d');
+const lCanvas = document.getElementById('loss-canvas');
+const lCtx = lCanvas.getContext('2d');
 
-function resize(){
+function resize() {
   clearTimeout(resizeTimeout);
   resizeTimeout = setTimeout(() => {
     const bWrap = document.getElementById('boundary-wrap');
@@ -659,12 +657,10 @@ function resize(){
       bCanvas.width = bWrap.clientWidth;
       bCanvas.height = bWrap.clientHeight;
     }
-    
     if (nWrap) {
       nCanvas.width = nWrap.clientWidth;
       nCanvas.height = nWrap.clientHeight;
     }
-    
     lCanvas.width = lCanvas.offsetWidth;
     lCanvas.height = lCanvas.offsetHeight;
     
@@ -673,8 +669,6 @@ function resize(){
 }
 
 window.addEventListener('resize', resize);
-
-// Use ResizeObserver for more reliable resize detection
 if (window.ResizeObserver) {
   const bWrap = document.getElementById('boundary-wrap');
   const nWrap = document.getElementById('network-wrap');
@@ -682,213 +676,191 @@ if (window.ResizeObserver) {
   if (nWrap) new ResizeObserver(resize).observe(nWrap);
 }
 
-function drawBoundary(){
-  const W=bCanvas.width;
-  const H=bCanvas.height;
+function drawBoundary() {
+  const W = bCanvas.width, H = bCanvas.height;
   if (W === 0 || H === 0) return;
 
-  const img=bCtx.createImageData(W,H);
-  
+  const img = bCtx.createImageData(W, H);
   const step = Math.max(2, Math.floor(Math.min(W, H) / 100));
 
-  for(let py=0;py<H;py+=step){
-    for(let px=0;px<W;px+=step){
-      const x=px/W;
-      const y=1-py/H;
-      const out=net.forward([x,y]).output;
-      
-      let cls;
-      if(out.length===1){
-        cls=out[0]>0.5?1:0;
-      } else {
-        cls=out.indexOf(Math.max(...out));
-      }
+  for (let py = 0; py < H; py += step) {
+    for (let px = 0; px < W; px += step) {
+      const x = px / W, y = 1 - py / H;
+      const out = net.forward([x, y]).output;
+      let cls = out.length === 1 ? (out[0] > 0.5 ? 1 : 0) : out.indexOf(Math.max(...out));
+      const hex = CLASS_COLORS[cls % CLASS_COLORS.length];
+      const r = parseInt(hex.slice(1,3),16);
+      const g = parseInt(hex.slice(3,5),16);
+      const b = parseInt(hex.slice(5,7),16);
 
-      const hex=CLASS_COLORS[cls%CLASS_COLORS.length];
-      const r=parseInt(hex.slice(1,3),16);
-      const g=parseInt(hex.slice(3,5),16);
-      const b=parseInt(hex.slice(5,7),16);
-
-      for(let dy=0;dy<step;dy++){
-        for(let dx=0;dx<step;dx++){
-          if (py+dy < H && px+dx < W) {
-            const i=((py+dy)*W+(px+dx))*4;
-            img.data[i]=r;
-            img.data[i+1]=g;
-            img.data[i+2]=b;
-            img.data[i+3]=90;
+      for (let dy = 0; dy < step; dy++) {
+        for (let dx = 0; dx < step; dx++) {
+          if (py + dy < H && px + dx < W) {
+            const i = ((py + dy) * W + (px + dx)) * 4;
+            img.data[i] = r;
+            img.data[i+1] = g;
+            img.data[i+2] = b;
+            img.data[i+3] = 90;
           }
         }
       }
     }
   }
 
-  bCtx.putImageData(img,0,0);
+  bCtx.putImageData(img, 0, 0);
 
-  const ds=DS[currentDS];
+  const ds = DS[currentDS];
   if (!ds) return;
-  
-  ds.X.forEach((p,i)=>{
-    const x=p[0]*W;
-    const y=(1-p[1])*H;
+  ds.X.forEach((p, i) => {
+    const px = p[0] * W, py = (1 - p[1]) * H;
     bCtx.beginPath();
-    bCtx.arc(x,y,7,0,Math.PI*2);
-    bCtx.fillStyle=CLASS_COLORS[ds.Y[i] % CLASS_COLORS.length];
+    bCtx.arc(px, py, 7, 0, Math.PI*2);
+    bCtx.fillStyle = CLASS_COLORS[ds.Y[i] % CLASS_COLORS.length];
     bCtx.fill();
-    bCtx.strokeStyle='#000';
+    bCtx.strokeStyle = '#000';
     bCtx.stroke();
   });
 }
 
-function drawNetwork(){
-  const W=nCanvas.width;
-  const H=nCanvas.height;
+function drawNetwork() {
+  const W = nCanvas.width, H = nCanvas.height;
   if (W === 0 || H === 0) return;
-  
+
   nCtx.clearRect(0,0,W,H);
+  const layers = net.layerSizes;
+  const xs = layers.map((_, i) => 60 + i * ((W-120) / (layers.length-1)));
 
-  const layers=net.layerSizes;
-  const xs=layers.map((_,i)=>60+i*((W-120)/(layers.length-1)));
-
-  function ys(count){
-    const s=Math.min(70,(H-80)/count);
-    const total=s*(count-1);
-    const start=(H-total)/2;
-    return Array.from({length:count},(_,i)=>start+i*s);
+  function ys(count) {
+    const s = Math.min(70, (H-80)/count);
+    const total = s * (count-1);
+    const start = (H-total)/2;
+    return Array.from({length: count}, (_, i) => start + i * s);
   }
+  const yPos = layers.map(ys);
 
-  const yPos=layers.map(ys);
-
-  for(let l=0;l<net.weights.length;l++){
-    for(let i=0;i<net.weights[l].length;i++){
-      for(let j=0;j<net.weights[l][i].length;j++){
-        const w=net.weights[l][i][j];
+  for (let l = 0; l < net.weights.length; l++) {
+    for (let i = 0; i < net.weights[l].length; i++) {
+      for (let j = 0; j < net.weights[l][i].length; j++) {
+        const w = net.weights[l][i][j];
         nCtx.beginPath();
-        nCtx.moveTo(xs[l],yPos[l][j]);
-        nCtx.lineTo(xs[l+1],yPos[l+1][i]);
-        nCtx.strokeStyle=w>0 ? 'rgba(240,165,0,0.5)' : 'rgba(88,166,255,0.5)';
-        nCtx.lineWidth=Math.abs(w)*1.5+0.3;
+        nCtx.moveTo(xs[l], yPos[l][j]);
+        nCtx.lineTo(xs[l+1], yPos[l+1][i]);
+        nCtx.strokeStyle = w > 0 ? 'rgba(240,165,0,0.5)' : 'rgba(88,166,255,0.5)';
+        nCtx.lineWidth = Math.abs(w)*1.5 + 0.3;
         nCtx.stroke();
       }
     }
   }
 
-  for(let l=0;l<layers.length;l++){
-    for(let i=0;i<layers[l];i++){
+  for (let l = 0; l < layers.length; l++) {
+    for (let i = 0; i < layers[l]; i++) {
       nCtx.beginPath();
-      nCtx.arc(xs[l],yPos[l][i],14,0,Math.PI*2);
-      nCtx.fillStyle='#161b22';
+      nCtx.arc(xs[l], yPos[l][i], 14, 0, Math.PI*2);
+      nCtx.fillStyle = '#161b22';
       nCtx.fill();
-      nCtx.strokeStyle='#f0a500';
+      nCtx.strokeStyle = '#f0a500';
       nCtx.stroke();
     }
   }
 }
 
-function drawLoss(){
-  const W=lCanvas.width;
-  const H=lCanvas.height;
+function drawLoss() {
+  const W = lCanvas.width, H = lCanvas.height;
   lCtx.clearRect(0,0,W,H);
-  if(lossHistory.length<2)return;
+  if (lossHistory.length < 2) return;
 
-  const max=Math.max(...lossHistory);
-  const min=Math.min(...lossHistory);
+  const max = Math.max(...lossHistory);
+  const min = Math.min(...lossHistory);
   lCtx.beginPath();
 
-  lossHistory.forEach((v,i)=>{
-    const x=(i/(lossHistory.length-1))*W;
-    const y=H-(v-min)/(max-min+1e-6)*H;
-    if(i===0) lCtx.moveTo(x,y);
-    else lCtx.lineTo(x,y);
+  lossHistory.forEach((v, i) => {
+    const x = (i / (lossHistory.length-1)) * W;
+    const y = H - ((v - min) / (max - min + 1e-6)) * H;
+    if (i === 0) lCtx.moveTo(x, y);
+    else lCtx.lineTo(x, y);
   });
 
-  lCtx.strokeStyle='#f0a500';
-  lCtx.lineWidth=2;
+  lCtx.strokeStyle = '#f0a500';
+  lCtx.lineWidth = 2;
   lCtx.stroke();
 }
 
-function renderWeights(){
-  const wrap=document.getElementById('weights-wrap');
+function renderWeights() {
+  const wrap = document.getElementById('weights-wrap');
   if (!wrap) return;
-  wrap.innerHTML='';
-
-  net.weights.forEach((layer,l)=>{
-    layer.forEach(row=>{
-      const div=document.createElement('div');
-      div.className='weight-row';
-      row.forEach(w=>{
-        const c=document.createElement('div');
-        c.className='weight-cell '+(w>0?'pos':'neg');
-        c.textContent=w.toFixed(2);
-        div.appendChild(c);
+  wrap.innerHTML = '';
+  net.weights.forEach(layer => {
+    layer.forEach(row => {
+      const div = document.createElement('div');
+      div.className = 'weight-row';
+      row.forEach(w => {
+        const cell = document.createElement('div');
+        cell.className = 'weight-cell ' + (w > 0 ? 'pos' : 'neg');
+        cell.textContent = w.toFixed(2);
+        div.appendChild(cell);
       });
       wrap.appendChild(div);
     });
   });
 }
 
-function redraw(){
+function redraw() {
   drawBoundary();
   drawNetwork();
   drawLoss();
   renderWeights();
 }
 
-function trainFrame(){
-  if(!running)return;
-
-  const ds=DS[currentDS];
-  for(let i=0;i<speed;i++){
-    const loss=net.trainEpoch(ds.X,ds.Y);
+function trainFrame() {
+  if (!running) return;
+  const ds = DS[currentDS];
+  for (let i = 0; i < speed; i++) {
+    const loss = net.trainEpoch(ds.X, ds.Y);
     epoch++;
     lossHistory.push(loss);
+    if (lossHistory.length > 500) lossHistory.shift();
 
-    if(lossHistory.length>500){
-      lossHistory.shift();
-    }
-
-    document.getElementById('epoch-val').textContent=epoch;
-    document.getElementById('loss-val').textContent=loss.toFixed(4);
-    document.getElementById('acc-val').textContent=(net.accuracy(ds.X,ds.Y)*100).toFixed(1)+'%';
+    document.getElementById('epoch-val').textContent = epoch;
+    document.getElementById('loss-val').textContent = loss.toFixed(4);
+    document.getElementById('acc-val').textContent = (net.accuracy(ds.X, ds.Y)*100).toFixed(1) + '%';
   }
-
   redraw();
   requestAnimationFrame(trainFrame);
 }
 
-function toggleTraining(){
-  running=!running;
-  document.getElementById('train-btn').textContent=running?'Pause':'Train';
-  if(running) trainFrame();
+function toggleTraining() {
+  running = !running;
+  document.getElementById('train-btn').textContent = running ? 'Pause' : 'Train';
+  if (running) trainFrame();
 }
 
-function resetAll(){
-  epoch=0;
-  lossHistory=[];
-  buildNetwork();
-  document.getElementById('epoch-val').textContent='0';
-  document.getElementById('loss-val').textContent='—';
-  document.getElementById('acc-val').textContent='—';
+function resetAll() {
+  epoch = 0;
+  lossHistory = [];
+  buildNetwork();   // rebuild based on current dataset's class count
+  document.getElementById('epoch-val').textContent = '0';
+  document.getElementById('loss-val').textContent = '—';
+  document.getElementById('acc-val').textContent = '—';
   redraw();
 }
 
-function selectDataset(name){
-  currentDS=name;
-  document.querySelectorAll('header button').forEach(b=>b.classList.remove('active'));
-  const btn=document.getElementById('btn-'+name);
-  if(btn) btn.classList.add('active');
+function selectDataset(name) {
+  currentDS = name;
+  document.querySelectorAll('header button').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('btn-' + name);
+  if (btn) btn.classList.add('active');
   renderClassPicker();
   resetAll();
 }
 
-function addLayer(){
+function addLayer() {
   hiddenLayers.push(6);
   updateLayerInputs();
   resetAll();
 }
 
-function removeLayer(){
-  if(hiddenLayers.length<=1)return;
+function removeLayer() {
+  if (hiddenLayers.length <= 1) return;
   hiddenLayers.pop();
   updateLayerInputs();
   resetAll();
@@ -905,7 +877,6 @@ function updateLayerSize(index, value) {
 function updateLayerInputs() {
   const container = document.querySelector('.layer-config');
   if (!container) return;
-  
   const existingInputs = container.querySelectorAll('.layer-size-input');
   existingInputs.forEach(input => input.remove());
   
@@ -917,37 +888,44 @@ function updateLayerInputs() {
     input.min = 1;
     input.max = 20;
     input.onchange = function() { updateLayerSize(index, this.value); };
-    
     const addBtn = container.querySelector('button');
     container.insertBefore(input, addBtn);
   });
 }
 
-function setLR(v){
+function setLR(v) {
   if (net) net.lr = Math.pow(10, parseFloat(v));
 }
 
-function setSpeed(v){
+function setSpeed(v) {
   speed = parseInt(v);
 }
 
-function renderClassPicker(){
+// ---- Class picker: always shows Class 0, 1, 2 ----
+function renderClassPicker() {
   const wrap = document.getElementById('class-picker');
   if (!wrap) return;
   wrap.innerHTML = '';
 
-  // Always show at least 3 class buttons
-  for (let i = 0; i < MAX_CLASS_BUTTONS; i++) {
+  // Always show classes 0, 1, 2
+  for (let i = 0; i < 3; i++) {
     const btn = document.createElement('button');
     btn.className = 'class-btn';
     btn.textContent = 'Class ' + i;
     btn.style.borderColor = CLASS_COLORS[i % CLASS_COLORS.length];
     btn.style.color = CLASS_COLORS[i % CLASS_COLORS.length];
     
-    btn.onclick = (function(classIndex) {
+    btn.onclick = (function(classIdx) {
       return function() {
-        selectedClass = classIndex;
+        selectedClass = classIdx;
         renderClassPicker();
+        // If the dataset now contains a higher class than before, rebuild network
+        const currentMax = getDatasetClassCount();
+        if (classIdx >= currentMax) {
+          // network needs more outputs -> rebuild
+          buildNetwork();
+          redraw();
+        }
       };
     })(i);
     
@@ -959,59 +937,62 @@ function renderClassPicker(){
   }
 }
 
-bCanvas.addEventListener('mousedown',e=>{
-  const rect=bCanvas.getBoundingClientRect();
-  const mx=(e.clientX-rect.left)/rect.width;
-  const my=1-(e.clientY-rect.top)/rect.height;
-  const ds=DS[currentDS];
+// ---- Canvas interaction for adding/moving points ----
+bCanvas.addEventListener('mousedown', e => {
+  const rect = bCanvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width;
+  const my = 1 - (e.clientY - rect.top) / rect.height;
+  const ds = DS[currentDS];
 
-  for(let i=0;i<ds.X.length;i++){
-    const p=ds.X[i];
-    if(Math.hypot(p[0]-mx,p[1]-my)<0.04){
-      draggedPoint=i;
+  for (let i = 0; i < ds.X.length; i++) {
+    if (Math.hypot(ds.X[i][0] - mx, ds.X[i][1] - my) < 0.04) {
+      draggedPoint = i;
       return;
     }
   }
 
-  ds.X.push([mx,my]);
+  // Add new point
+  ds.X.push([mx, my]);
   ds.Y.push(selectedClass);
+  
+  // If new class exceeds current network capacity, rebuild
+  if (selectedClass >= getDatasetClassCount() - 1) {
+    buildNetwork();
+  }
   redraw();
 });
 
-window.addEventListener('mousemove',e=>{
-  if(draggedPoint===null)return;
-  const rect=bCanvas.getBoundingClientRect();
-  const mx=(e.clientX-rect.left)/rect.width;
-  const my=1-(e.clientY-rect.top)/rect.height;
-  DS[currentDS].X[draggedPoint]=[
-    Math.max(0,Math.min(1,mx)),
-    Math.max(0,Math.min(1,my))
+window.addEventListener('mousemove', e => {
+  if (draggedPoint === null) return;
+  const rect = bCanvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width;
+  const my = 1 - (e.clientY - rect.top) / rect.height;
+  DS[currentDS].X[draggedPoint] = [
+    Math.max(0, Math.min(1, mx)),
+    Math.max(0, Math.min(1, my))
   ];
   redraw();
 });
 
-window.addEventListener('mouseup',()=>{
-  draggedPoint=null;
-});
+window.addEventListener('mouseup', () => { draggedPoint = null; });
 
-bCanvas.addEventListener('contextmenu',e=>{
+bCanvas.addEventListener('contextmenu', e => {
   e.preventDefault();
-  const rect=bCanvas.getBoundingClientRect();
-  const mx=(e.clientX-rect.left)/rect.width;
-  const my=1-(e.clientY-rect.top)/rect.height;
-  const ds=DS[currentDS];
-
-  for(let i=0;i<ds.X.length;i++){
-    const p=ds.X[i];
-    if(Math.hypot(p[0]-mx,p[1]-my)<0.04){
-      ds.X.splice(i,1);
-      ds.Y.splice(i,1);
+  const rect = bCanvas.getBoundingClientRect();
+  const mx = (e.clientX - rect.left) / rect.width;
+  const my = 1 - (e.clientY - rect.top) / rect.height;
+  const ds = DS[currentDS];
+  for (let i = 0; i < ds.X.length; i++) {
+    if (Math.hypot(ds.X[i][0] - mx, ds.X[i][1] - my) < 0.04) {
+      ds.X.splice(i, 1);
+      ds.Y.splice(i, 1);
       redraw();
       return;
     }
   }
 });
 
+// Initial render
 renderClassPicker();
 resize();
 </script>
