@@ -1,4 +1,3 @@
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -41,26 +40,29 @@ body {
 }
 
 header {
-  height:58px;
+  min-height:58px;
   border-bottom:1px solid var(--border);
   display:flex;
   align-items:center;
   gap:10px;
-  padding:0 14px;
+  padding:8px 14px;
   background:#0d1117ee;
   flex-wrap:wrap;
+  z-index:10;
 }
 
 .logo {
   color:var(--accent);
   font-family:'Playfair Display', serif;
   font-size:18px;
+  white-space:nowrap;
 }
 
 .sep {
   width:1px;
   height:24px;
   background:var(--border);
+  flex-shrink:0;
 }
 
 button {
@@ -72,6 +74,7 @@ button {
   cursor:pointer;
   font-family:inherit;
   font-size:11px;
+  white-space:nowrap;
 }
 
 button:hover {
@@ -96,6 +99,8 @@ main {
   grid-template-columns:1fr 1fr 300px;
   gap:1px;
   background:var(--border);
+  overflow:hidden;
+  min-height:0;
 }
 
 .panel {
@@ -104,6 +109,7 @@ main {
   display:flex;
   flex-direction:column;
   overflow:hidden;
+  min-height:0;
 }
 
 .panel-title {
@@ -112,6 +118,7 @@ main {
   text-transform:uppercase;
   margin-bottom:10px;
   letter-spacing:0.12em;
+  flex-shrink:0;
 }
 
 canvas {
@@ -122,10 +129,28 @@ canvas {
   flex:1;
   overflow:hidden;
   border-radius:6px;
+  min-height:0;
+  position:relative;
 }
 
-#boundary-canvas,
+#boundary-canvas {
+  position:absolute;
+  top:0;
+  left:0;
+  width:100%;
+  height:100%;
+}
+
+#network-wrap {
+  flex:1;
+  min-height:0;
+  position:relative;
+}
+
 #network-canvas {
+  position:absolute;
+  top:0;
+  left:0;
   width:100%;
   height:100%;
 }
@@ -134,6 +159,7 @@ canvas {
   display:grid;
   grid-template-columns:1fr 1fr 1fr;
   gap:8px;
+  flex-shrink:0;
 }
 
 .stat {
@@ -160,12 +186,14 @@ canvas {
   border:1px solid var(--border);
   border-radius:6px;
   margin-top:12px;
+  flex-shrink:0;
 }
 
 #weights-wrap {
   overflow:auto;
   margin-top:10px;
   flex:1;
+  min-height:0;
 }
 
 .weight-row {
@@ -196,15 +224,39 @@ canvas {
   display:flex;
   align-items:center;
   gap:6px;
+  white-space:nowrap;
 }
 
 input[type=range] {
   width:80px;
 }
 
+input[type=number] {
+  width:50px;
+  background:var(--bg2);
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:4px;
+  padding:4px;
+  font-family:inherit;
+  font-size:11px;
+}
+
 #class-picker {
   display:flex;
   gap:6px;
+  flex-wrap:wrap;
+}
+
+.layer-config {
+  display:flex;
+  align-items:center;
+  gap:4px;
+}
+
+.layer-size-input {
+  width:45px !important;
+  text-align:center;
 }
 
 @media (max-width:1000px) {
@@ -214,9 +266,15 @@ input[type=range] {
 
   main {
     grid-template-columns:1fr;
+    overflow:auto;
   }
 
   .panel {
+    min-height:400px;
+    overflow:visible;
+  }
+  
+  #boundary-wrap, #network-wrap {
     min-height:400px;
   }
 }
@@ -237,8 +295,15 @@ input[type=range] {
 
   <div class="sep"></div>
 
-  <button onclick="addLayer()">+ Layer</button>
-  <button onclick="removeLayer()">− Layer</button>
+  <div class="layer-config">
+    <span style="font-size:11px;">Layers:</span>
+    <input type="number" class="layer-size-input" id="layer-size-0" value="6" min="1" max="20" onchange="updateLayerSize(0, this.value)">
+    <input type="number" class="layer-size-input" id="layer-size-1" value="6" min="1" max="20" onchange="updateLayerSize(1, this.value)">
+    <button onclick="addLayer()">+</button>
+    <button onclick="removeLayer()">−</button>
+  </div>
+
+  <div class="sep"></div>
 
   <div class="ctrl">
     LR
@@ -267,7 +332,9 @@ input[type=range] {
 
 <div class="panel">
   <div class="panel-title">Network Architecture</div>
-  <canvas id="network-canvas"></canvas>
+  <div id="network-wrap">
+    <canvas id="network-canvas"></canvas>
+  </div>
 </div>
 
 <div class="panel">
@@ -319,7 +386,6 @@ function randn() {
 
 function xavier(rows, cols) {
   const s = Math.sqrt(2 / (rows + cols));
-
   return Array.from({ length: rows }, () =>
     Array.from({ length: cols }, () => randn() * s)
   );
@@ -346,7 +412,7 @@ function softmax(arr) {
 
 class DynamicNet {
   constructor(layerSizes) {
-    this.layerSizes = layerSizes;
+    this.layerSizes = [...layerSizes];
     this.lr = 0.03;
 
     this.weights = [];
@@ -365,8 +431,7 @@ class DynamicNet {
 
     for (let l = 0; l < this.weights.length; l++) {
       const z = this.weights[l].map((row, i) => {
-        return row.reduce((s, w, j) => s + w * a[j], 0)
-          + this.biases[l][i];
+        return row.reduce((s, w, j) => s + w * a[j], 0) + this.biases[l][i];
       });
 
       zs.push(z);
@@ -380,35 +445,26 @@ class DynamicNet {
       activations.push(a);
     }
 
-    return {
-      activations,
-      zs,
-      output:a
-    };
+    return { activations, zs, output: a };
   }
 
   backward(x, y) {
     const { activations, zs, output } = this.forward(x);
 
     let delta;
-
     if (output.length === 1) {
       delta = [output[0] - y];
     } else {
       delta = output.map((v, i) => v - (i === y ? 1 : 0));
     }
 
-    const gradW = this.weights.map(W =>
-      W.map(r => r.map(() => 0))
-    );
-
+    const gradW = this.weights.map(W => W.map(r => r.map(() => 0)));
     const gradB = this.biases.map(b => b.map(() => 0));
 
     let L = this.weights.length - 1;
 
     for (let i = 0; i < delta.length; i++) {
       gradB[L][i] = delta[i];
-
       for (let j = 0; j < activations[L].length; j++) {
         gradW[L][i][j] = delta[i] * activations[L][j];
       }
@@ -416,14 +472,11 @@ class DynamicNet {
 
     for (let l = this.weights.length - 2; l >= 0; l--) {
       let next = [];
-
       for (let i = 0; i < this.layerSizes[l + 1]; i++) {
         let err = 0;
-
         for (let j = 0; j < delta.length; j++) {
           err += this.weights[l + 1][j][i] * delta[j];
         }
-
         next[i] = err * reluDeriv(zs[l][i]);
       }
 
@@ -431,7 +484,6 @@ class DynamicNet {
 
       for (let i = 0; i < delta.length; i++) {
         gradB[l][i] = delta[i];
-
         for (let j = 0; j < activations[l].length; j++) {
           gradW[l][i][j] = delta[i] * activations[l][j];
         }
@@ -443,7 +495,6 @@ class DynamicNet {
         for (let j = 0; j < this.weights[l][i].length; j++) {
           this.weights[l][i][j] -= this.lr * gradW[l][i][j];
         }
-
         this.biases[l][i] -= this.lr * gradB[l][i];
       }
     }
@@ -451,43 +502,31 @@ class DynamicNet {
 
   trainEpoch(X, Y) {
     let loss = 0;
-
     for (let i = 0; i < X.length; i++) {
       const out = this.forward(X[i]).output;
-
       if (out.length === 1) {
         const p = out[0];
         const y = Y[i];
-
-        loss -= y * Math.log(p + 1e-9)
-          + (1 - y) * Math.log(1 - p + 1e-9);
+        loss -= y * Math.log(p + 1e-9) + (1 - y) * Math.log(1 - p + 1e-9);
       } else {
         loss -= Math.log(out[Y[i]] + 1e-9);
       }
-
       this.backward(X[i], Y[i]);
     }
-
     return loss / X.length;
   }
 
   predict(x) {
     const out = this.forward(x).output;
-
-    if (out.length === 1) {
-      return out[0] > 0.5 ? 1 : 0;
-    }
-
+    if (out.length === 1) return out[0] > 0.5 ? 1 : 0;
     return out.indexOf(Math.max(...out));
   }
 
   accuracy(X, Y) {
     let ok = 0;
-
     for (let i = 0; i < X.length; i++) {
       if (this.predict(X[i]) === Y[i]) ok++;
     }
-
     return ok / X.length;
   }
 }
@@ -500,105 +539,51 @@ const DS = {
 };
 
 (function buildSpiral(){
-  const X=[];
-  const Y=[];
-
+  const X=[], Y=[];
   for(let i=0;i<80;i++){
-    const t=i/80;
-    const a=t*Math.PI*4;
-    const r=t*0.4;
-
-    X.push([
-      0.5+r*Math.cos(a),
-      0.5+r*Math.sin(a)
-    ]);
-
+    const t=i/80, a=t*Math.PI*4, r=t*0.4;
+    X.push([0.5+r*Math.cos(a), 0.5+r*Math.sin(a)]);
     Y.push(0);
-
-    X.push([
-      0.5+r*Math.cos(a+Math.PI),
-      0.5+r*Math.sin(a+Math.PI)
-    ]);
-
+    X.push([0.5+r*Math.cos(a+Math.PI), 0.5+r*Math.sin(a+Math.PI)]);
     Y.push(1);
   }
-
   DS.spiral={X,Y};
 })();
 
 (function buildCircle(){
-  const X=[];
-  const Y=[];
-
+  const X=[], Y=[];
   for(let i=0;i<120;i++){
     const a=Math.random()*Math.PI*2;
-
-    X.push([
-      0.5+Math.cos(a)*(0.15+Math.random()*0.05),
-      0.5+Math.sin(a)*(0.15+Math.random()*0.05)
-    ]);
-
+    X.push([0.5+Math.cos(a)*(0.15+Math.random()*0.05), 0.5+Math.sin(a)*(0.15+Math.random()*0.05)]);
     Y.push(0);
-
     const a2=Math.random()*Math.PI*2;
-
-    X.push([
-      0.5+Math.cos(a2)*(0.35+Math.random()*0.08),
-      0.5+Math.sin(a2)*(0.35+Math.random()*0.08)
-    ]);
-
+    X.push([0.5+Math.cos(a2)*(0.35+Math.random()*0.08), 0.5+Math.sin(a2)*(0.35+Math.random()*0.08)]);
     Y.push(1);
   }
-
   DS.circle={X,Y};
 })();
 
 (function buildMoons(){
-  const X=[];
-  const Y=[];
-
+  const X=[], Y=[];
   for(let i=0;i<100;i++){
     const t=Math.random()*Math.PI;
-
-    X.push([
-      0.3+Math.cos(t)*0.25,
-      0.55+Math.sin(t)*0.25
-    ]);
-
+    X.push([0.3+Math.cos(t)*0.25, 0.55+Math.sin(t)*0.25]);
     Y.push(0);
-
-    X.push([
-      0.55+Math.cos(t)*0.25,
-      0.45-Math.sin(t)*0.25
-    ]);
-
+    X.push([0.55+Math.cos(t)*0.25, 0.45-Math.sin(t)*0.25]);
     Y.push(1);
   }
-
   DS.moons={X,Y};
 })();
 
 (function buildGaussian(){
-  const X=[];
-  const Y=[];
-
-  const centers=[
-    [0.25,0.25],
-    [0.75,0.25],
-    [0.5,0.75]
-  ];
-
+  const X=[], Y=[];
+  const centers=[[0.25,0.25],[0.75,0.25],[0.5,0.75]];
   centers.forEach((c,cls)=>{
     for(let i=0;i<80;i++){
-      X.push([
-        c[0]+randn()*0.06,
-        c[1]+randn()*0.06
-      ]);
-
+      X.push([c[0]+randn()*0.06, c[1]+randn()*0.06]);
       Y.push(cls);
     }
   });
-
   DS.gaussian={X,Y};
 })();
 
@@ -611,6 +596,7 @@ let lossHistory=[];
 let speed=5;
 let selectedClass=0;
 let draggedPoint=null;
+let resizeTimeout;
 
 function getClassCount(){
   return Math.max(...DS[currentDS].Y)+1;
@@ -618,55 +604,57 @@ function getClassCount(){
 
 function buildNetwork(){
   const out=getClassCount()===2?1:getClassCount();
-
-  net=new DynamicNet([
-    2,
-    ...hiddenLayers,
-    out
-  ]);
+  net=new DynamicNet([2, ...hiddenLayers, out]);
 }
 
 buildNetwork();
 
 const bCanvas=document.getElementById('boundary-canvas');
 const bCtx=bCanvas.getContext('2d');
-
 const nCanvas=document.getElementById('network-canvas');
 const nCtx=nCanvas.getContext('2d');
-
 const lCanvas=document.getElementById('loss-canvas');
 const lCtx=lCanvas.getContext('2d');
 
 function resize(){
-  bCanvas.width=bCanvas.parentElement.clientWidth;
-  bCanvas.height=bCanvas.parentElement.clientHeight;
-
-  nCanvas.width=nCanvas.parentElement.clientWidth;
-  nCanvas.height=nCanvas.parentElement.clientHeight;
-
-  lCanvas.width=lCanvas.offsetWidth;
-  lCanvas.height=lCanvas.offsetHeight;
-
-  redraw();
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    const bWrap = document.getElementById('boundary-wrap');
+    const nWrap = document.getElementById('network-wrap');
+    
+    bCanvas.width = bWrap.clientWidth;
+    bCanvas.height = bWrap.clientHeight;
+    
+    nCanvas.width = nWrap.clientWidth;
+    nCanvas.height = nWrap.clientHeight;
+    
+    lCanvas.width = lCanvas.offsetWidth;
+    lCanvas.height = lCanvas.offsetHeight;
+    
+    redraw();
+  }, 100);
 }
 
-window.addEventListener('resize',resize);
+window.addEventListener('resize', resize);
+new ResizeObserver(resize).observe(document.getElementById('boundary-wrap'));
+new ResizeObserver(resize).observe(document.getElementById('network-wrap'));
 
 function drawBoundary(){
   const W=bCanvas.width;
   const H=bCanvas.height;
+  if (W === 0 || H === 0) return;
 
   const img=bCtx.createImageData(W,H);
+  
+  const step = Math.max(2, Math.floor(Math.min(W, H) / 100));
 
-  for(let py=0;py<H;py+=4){
-    for(let px=0;px<W;px+=4){
+  for(let py=0;py<H;py+=step){
+    for(let px=0;px<W;px+=step){
       const x=px/W;
       const y=1-py/H;
-
       const out=net.forward([x,y]).output;
-
+      
       let cls;
-
       if(out.length===1){
         cls=out[0]>0.5?1:0;
       } else {
@@ -674,19 +662,19 @@ function drawBoundary(){
       }
 
       const hex=CLASS_COLORS[cls%CLASS_COLORS.length];
-
       const r=parseInt(hex.slice(1,3),16);
       const g=parseInt(hex.slice(3,5),16);
       const b=parseInt(hex.slice(5,7),16);
 
-      for(let dy=0;dy<4;dy++){
-        for(let dx=0;dx<4;dx++){
-          const i=((py+dy)*W+(px+dx))*4;
-
-          img.data[i]=r;
-          img.data[i+1]=g;
-          img.data[i+2]=b;
-          img.data[i+3]=90;
+      for(let dy=0;dy<step;dy++){
+        for(let dx=0;dx<step;dx++){
+          if (py+dy < H && px+dx < W) {
+            const i=((py+dy)*W+(px+dx))*4;
+            img.data[i]=r;
+            img.data[i+1]=g;
+            img.data[i+2]=b;
+            img.data[i+3]=90;
+          }
         }
       }
     }
@@ -695,16 +683,15 @@ function drawBoundary(){
   bCtx.putImageData(img,0,0);
 
   const ds=DS[currentDS];
-
+  if (!ds) return;
+  
   ds.X.forEach((p,i)=>{
     const x=p[0]*W;
     const y=(1-p[1])*H;
-
     bCtx.beginPath();
     bCtx.arc(x,y,7,0,Math.PI*2);
     bCtx.fillStyle=CLASS_COLORS[ds.Y[i]];
     bCtx.fill();
-
     bCtx.strokeStyle='#000';
     bCtx.stroke();
   });
@@ -713,20 +700,17 @@ function drawBoundary(){
 function drawNetwork(){
   const W=nCanvas.width;
   const H=nCanvas.height;
-
+  if (W === 0 || H === 0) return;
+  
   nCtx.clearRect(0,0,W,H);
 
   const layers=net.layerSizes;
-
-  const xs=layers.map((_,i)=>{
-    return 60+i*((W-120)/(layers.length-1));
-  });
+  const xs=layers.map((_,i)=>60+i*((W-120)/(layers.length-1)));
 
   function ys(count){
     const s=Math.min(70,(H-80)/count);
     const total=s*(count-1);
     const start=(H-total)/2;
-
     return Array.from({length:count},(_,i)=>start+i*s);
   }
 
@@ -736,15 +720,10 @@ function drawNetwork(){
     for(let i=0;i<net.weights[l].length;i++){
       for(let j=0;j<net.weights[l][i].length;j++){
         const w=net.weights[l][i][j];
-
         nCtx.beginPath();
         nCtx.moveTo(xs[l],yPos[l][j]);
         nCtx.lineTo(xs[l+1],yPos[l+1][i]);
-
-        nCtx.strokeStyle=w>0
-          ? 'rgba(240,165,0,0.5)'
-          : 'rgba(88,166,255,0.5)';
-
+        nCtx.strokeStyle=w>0 ? 'rgba(240,165,0,0.5)' : 'rgba(88,166,255,0.5)';
         nCtx.lineWidth=Math.abs(w)*1.5+0.3;
         nCtx.stroke();
       }
@@ -766,20 +745,16 @@ function drawNetwork(){
 function drawLoss(){
   const W=lCanvas.width;
   const H=lCanvas.height;
-
   lCtx.clearRect(0,0,W,H);
-
   if(lossHistory.length<2)return;
 
   const max=Math.max(...lossHistory);
   const min=Math.min(...lossHistory);
-
   lCtx.beginPath();
 
   lossHistory.forEach((v,i)=>{
     const x=(i/(lossHistory.length-1))*W;
     const y=H-(v-min)/(max-min+1e-6)*H;
-
     if(i===0) lCtx.moveTo(x,y);
     else lCtx.lineTo(x,y);
   });
@@ -791,20 +766,19 @@ function drawLoss(){
 
 function renderWeights(){
   const wrap=document.getElementById('weights-wrap');
+  if (!wrap) return;
   wrap.innerHTML='';
 
   net.weights.forEach((layer,l)=>{
     layer.forEach(row=>{
       const div=document.createElement('div');
       div.className='weight-row';
-
       row.forEach(w=>{
         const c=document.createElement('div');
         c.className='weight-cell '+(w>0?'pos':'neg');
         c.textContent=w.toFixed(2);
         div.appendChild(c);
       });
-
       wrap.appendChild(div);
     });
   });
@@ -821,10 +795,8 @@ function trainFrame(){
   if(!running)return;
 
   const ds=DS[currentDS];
-
   for(let i=0;i<speed;i++){
     const loss=net.trainEpoch(ds.X,ds.Y);
-
     epoch++;
     lossHistory.push(loss);
 
@@ -834,64 +806,80 @@ function trainFrame(){
 
     document.getElementById('epoch-val').textContent=epoch;
     document.getElementById('loss-val').textContent=loss.toFixed(4);
-    document.getElementById('acc-val').textContent=
-      (net.accuracy(ds.X,ds.Y)*100).toFixed(1)+'%';
+    document.getElementById('acc-val').textContent=(net.accuracy(ds.X,ds.Y)*100).toFixed(1)+'%';
   }
 
   redraw();
-
   requestAnimationFrame(trainFrame);
 }
 
 function toggleTraining(){
   running=!running;
-
-  document.getElementById('train-btn').textContent=
-    running?'Pause':'Train';
-
-  if(running){
-    trainFrame();
-  }
+  document.getElementById('train-btn').textContent=running?'Pause':'Train';
+  if(running) trainFrame();
 }
 
 function resetAll(){
   epoch=0;
   lossHistory=[];
-
   buildNetwork();
-
   document.getElementById('epoch-val').textContent='0';
   document.getElementById('loss-val').textContent='—';
   document.getElementById('acc-val').textContent='—';
-
   redraw();
 }
 
 function selectDataset(name){
   currentDS=name;
-
-  document.querySelectorAll('header button').forEach(b=>{
-    b.classList.remove('active');
-  });
-
+  document.querySelectorAll('header button').forEach(b=>b.classList.remove('active'));
   const btn=document.getElementById('btn-'+name);
-
   if(btn) btn.classList.add('active');
-
   renderClassPicker();
   resetAll();
 }
 
 function addLayer(){
   hiddenLayers.push(6);
+  updateLayerInputs();
   resetAll();
 }
 
 function removeLayer(){
   if(hiddenLayers.length<=1)return;
-
   hiddenLayers.pop();
+  updateLayerInputs();
   resetAll();
+}
+
+function updateLayerSize(index, value) {
+  const size = parseInt(value);
+  if (size >= 1 && size <= 20) {
+    hiddenLayers[index] = size;
+    resetAll();
+  }
+}
+
+function updateLayerInputs() {
+  const container = document.querySelector('.layer-config');
+  const existingInputs = container.querySelectorAll('.layer-size-input');
+  
+  // Remove old inputs
+  existingInputs.forEach(input => input.remove());
+  
+  // Add new inputs
+  hiddenLayers.forEach((size, index) => {
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'layer-size-input';
+    input.value = size;
+    input.min = 1;
+    input.max = 20;
+    input.onchange = function() { updateLayerSize(index, this.value); };
+    
+    // Insert before the + button
+    const addBtn = container.querySelector('button');
+    container.insertBefore(input, addBtn);
+  });
 }
 
 function setLR(v){
@@ -904,41 +892,33 @@ function setSpeed(v){
 
 function renderClassPicker(){
   const wrap=document.getElementById('class-picker');
-
+  if (!wrap) return;
   wrap.innerHTML='';
 
   const count=getClassCount();
-
   for(let i=0;i<count;i++){
     const btn=document.createElement('button');
-
     btn.textContent='Class '+i;
     btn.style.borderColor=CLASS_COLORS[i];
-
     btn.onclick=()=>{
       selectedClass=i;
       renderClassPicker();
     };
-
     if(selectedClass===i){
       btn.style.background=CLASS_COLORS[i]+'33';
     }
-
     wrap.appendChild(btn);
   }
 }
 
 bCanvas.addEventListener('mousedown',e=>{
   const rect=bCanvas.getBoundingClientRect();
-
   const mx=(e.clientX-rect.left)/rect.width;
   const my=1-(e.clientY-rect.top)/rect.height;
-
   const ds=DS[currentDS];
 
   for(let i=0;i<ds.X.length;i++){
     const p=ds.X[i];
-
     if(Math.hypot(p[0]-mx,p[1]-my)<0.04){
       draggedPoint=i;
       return;
@@ -947,23 +927,18 @@ bCanvas.addEventListener('mousedown',e=>{
 
   ds.X.push([mx,my]);
   ds.Y.push(selectedClass);
-
   redraw();
 });
 
 window.addEventListener('mousemove',e=>{
   if(draggedPoint===null)return;
-
   const rect=bCanvas.getBoundingClientRect();
-
   const mx=(e.clientX-rect.left)/rect.width;
   const my=1-(e.clientY-rect.top)/rect.height;
-
   DS[currentDS].X[draggedPoint]=[
     Math.max(0,Math.min(1,mx)),
     Math.max(0,Math.min(1,my))
   ];
-
   redraw();
 });
 
@@ -973,21 +948,16 @@ window.addEventListener('mouseup',()=>{
 
 bCanvas.addEventListener('contextmenu',e=>{
   e.preventDefault();
-
   const rect=bCanvas.getBoundingClientRect();
-
   const mx=(e.clientX-rect.left)/rect.width;
   const my=1-(e.clientY-rect.top)/rect.height;
-
   const ds=DS[currentDS];
 
   for(let i=0;i<ds.X.length;i++){
     const p=ds.X[i];
-
     if(Math.hypot(p[0]-mx,p[1]-my)<0.04){
       ds.X.splice(i,1);
       ds.Y.splice(i,1);
-
       redraw();
       return;
     }
@@ -999,4 +969,3 @@ resize();
 </script>
 </body>
 </html>
-```
