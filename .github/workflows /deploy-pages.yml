@@ -1,0 +1,76 @@
+name: Deploy static portfolio to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Ensure Pages site exists
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            try {
+              await github.rest.repos.getPages({ owner, repo });
+              core.info('GitHub Pages site already exists.');
+              return;
+            } catch (error) {
+              if (error.status !== 404) {
+                throw error;
+              }
+            }
+
+            core.info('GitHub Pages site not found. Attempting to create it for workflow deployments...');
+            try {
+              await github.rest.repos.createPagesSite({
+                owner,
+                repo,
+                build_type: 'workflow',
+                source: { branch: 'main', path: '/' }
+              });
+              core.info('Successfully created GitHub Pages site.');
+            } catch (error) {
+              if (error.status === 403) {
+                core.setFailed(
+                  'Unable to create GitHub Pages site with GITHUB_TOKEN (403). ' +
+                  'A repository admin must enable Pages once in Settings > Pages, then re-run this workflow.'
+                );
+                return;
+              }
+              throw error;
+            }
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
